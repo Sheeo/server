@@ -38,6 +38,7 @@ from gameModes.ladderGame import ladder1v1GameClass
 
 class ladder1v1GamesContainerClass(gamesContainerClass):
     '''Class for 1vs1 ladder games'''
+    MAP_COUNT=15
     
     def __init__(self, db, parent = None):
         super(ladder1v1GamesContainerClass, self).__init__("ladder1v1", "ladder 1 vs 1" ,db, parent)
@@ -92,7 +93,6 @@ class ladder1v1GamesContainerClass(gamesContainerClass):
         return 0
 
     def removePlayer(self, player) :
-        
         if  player in self.players :
             self.players.remove(player)
             player.setAction("NOTHING")
@@ -100,13 +100,41 @@ class ladder1v1GamesContainerClass(gamesContainerClass):
         return 0
     
     def getMatchQuality(self, player1, player2):
-        
         matchup = [player1, player2]
-        
         gameInfo = GameInfo()
         calculator = FactorGraphTrueSkillCalculator()
         return calculator.calculateMatchQuality(gameInfo, matchup)
-    
+
+    def fillMapsQuery(self, maps, query):
+        n = self.MAP_COUNT-len(maps)
+        if n <= 0:
+            return
+
+        query = QSqlQuery(self.db)    
+        query.prepare(query % n)
+        query.exec_()
+
+        if query.size() > 0:
+            while query.next():
+                maps.append(query.value(0))
+
+        return maps
+    end
+
+    def fillPopularMaps(self, maps):
+        return self.fillMapsQuery(maps, "SELECT `idMap` FROM `ladder_map_selection` GROUP BY `idMap` ORDER BY count(`idUser`) DESC LIMIT %i")
+
+    def fillRandomMaps(self, maps):
+        return self.fillMapsQuery(maps, "SELECT `idmap` FROM `ladder_map` ORDER BY RAND( ) LIMIT %i")
+
+    def fillPlayerMaps(self, maps, player_maps):
+        n = self.MAP_COUNT-len(maps)
+        if n <= 0:
+            return
+
+        maps = maps + player_maps
+        return maps[:n]
+
     def startGame(self, player1, player2) :
         #start game
         
@@ -137,89 +165,25 @@ class ladder1v1GamesContainerClass(gamesContainerClass):
             
         query = QSqlQuery(self.db)
         # get player map selection for player 1
-        mapsP1 = []
-        query.prepare("SELECT idMap FROM ladder_map_selection WHERE idUser = ?")
-        query.addBindValue(player1.getId())
-        query.exec_()
+        
+        query.prepare("SELECT CASE WHEN :p1 THEN 0 ELSE 1 END, idMap FROM ladder_map_selection WHERE idUser IN (:p1, :p2)")
+        query.addBindValue('p1', player1.getId())
+        query.addBindValue('p2', player2.getId())
+        
+        maps = []
+        maps.append([])
         if query.size() > 0:
             while query.next():
-                mapsP1.append(int(query.value(0)))
-
-        # get player map selection for player 2
-        mapsP2 = []
-        query.prepare("SELECT idMap FROM ladder_map_selection WHERE idUser = ?")
-        query.addBindValue(player2.getId())
-        query.exec_()
-        if query.size() > 0:
-            while query.next():
-                mapsP2.append(int(query.value(0)))
-                
-        commonMaps = list(set(mapsP1).intersection(set(mapsP2)))
+                maps[query.value(0)].append(query.value[1])
         
-        if len(commonMaps) < 15 :
-            
-            moreMaps = 15 - len(commonMaps)
-            choice = random.randint(0,2)
+        mapPool = list(set(maps[0]).intersection(set(maps[1])))
 
-            if len(mapsP1) == 0 and choice == 1:
-                choice = 0
-
-            if len(mapsP2) == 0 and choice == 2:
-                choice = 0
-
-            if choice == 0:
-                # not enough common maps, we fill with more maps.
-                query.prepare("SELECT `idMap` FROM `ladder_map_selection` GROUP BY `idMap` ORDER BY count(`idUser`) DESC LIMIT %i" % moreMaps)
-                query.exec_()
-                if query.size() > moreMaps:
-                    while query.next():
-                        commonMaps.append(int(query.value(0)))
-                else:
-                    query.prepare("SELECT `idmap` FROM `ladder_map` ORDER BY RAND( ) LIMIT %i" % moreMaps)
-                    query.exec_()
-                    if query.size() > 0:
-                        while query.next():
-                            commonMaps.append(int(query.value(0)))
-            
-            elif choice == 1:
-                random.shuffle(mapsP1)
-                if len(mapsP1) >= moreMaps:
-                    commonMaps = commonMaps + mapsP1[:moreMaps]
-                else:
-                    commonMaps = commonMaps + mapsP1
-                    remainingMaps = 15 - len(commonMaps)
-                    query.prepare("SELECT `idMap` FROM `ladder_map_selection` GROUP BY `idMap` ORDER BY count(`idUser`) DESC LIMIT %i" % remainingMaps)
-                    query.exec_()
-                    if query.size() > remainingMaps:
-                        while query.next():
-                            commonMaps.append(int(query.value(0)))                    
-                    else:
-                        query.prepare("SELECT `idmap` FROM `ladder_map` ORDER BY RAND( ) LIMIT %i" % remainingMaps)
-                        query.exec_()
-                        if query.size() > 0:
-                            while query.next():
-                                commonMaps.append(int(query.value(0)))                    
-                     
-            elif choice == 2:
-                random.shuffle(mapsP2)
-                if len(mapsP2) >= moreMaps:
-                    commonMaps = commonMaps + mapsP2[:moreMaps]
-                else:
-                    commonMaps = commonMaps + mapsP2
-                    remainingMaps = 15 - len(commonMaps)
-                    query.prepare("SELECT `idMap` FROM `ladder_map_selection` GROUP BY `idMap` ORDER BY count(`idUser`) DESC LIMIT %i" % remainingMaps)
-                    query.exec_()
-                    if query.size() > remainingMaps:
-                        while query.next():
-                            commonMaps.append(int(query.value(0)))                    
-                    else:
-                        query.prepare("SELECT `idmap` FROM `ladder_map` ORDER BY RAND( ) LIMIT %i" % remainingMaps)
-                        query.exec_()
-                        if query.size() > 0:
-                            while query.next():
-                                commonMaps.append(int(query.value(0)))                                        
+        # random players maps, then popular and finally random, will stop at 15 in pool
+        self.fillPlayerMaps(mapPool, maps[random.randint(0,1)])
+        self.fillPopularMaps(mapPool)
+        self.fillRandomMaps(mapPool)
         
-        mapChosen = random.choice(commonMaps)
+        mapChosen = random.choice(mapPool)
 
         query.prepare("SELECT filename FROM table_map WHERE id = ?")
         query.addBindValue(mapChosen)
