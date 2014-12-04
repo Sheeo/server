@@ -118,7 +118,7 @@ class ladder1v1GamesContainerClass(gamesContainerClass):
             while query.next():
                 maps.append(query.value(0))
 
-        return maps
+        return list(set(maps))
     end
 
     def fillPopularMaps(self, maps):
@@ -133,7 +133,7 @@ class ladder1v1GamesContainerClass(gamesContainerClass):
             return
 
         maps = maps + player_maps
-        return maps[:n]
+        return list(set(maps[:n]))
 
     def startGame(self, player1, player2) :
         #start game
@@ -165,16 +165,17 @@ class ladder1v1GamesContainerClass(gamesContainerClass):
             
         query = QSqlQuery(self.db)
         # get player map selection for player 1
+        ids = [player1.getId(), player2.getId()]
         
-        query.prepare("SELECT CASE WHEN :p1 THEN 0 ELSE 1 END, idMap FROM ladder_map_selection WHERE idUser IN (:p1, :p2)")
-        query.addBindValue('p1', player1.getId())
-        query.addBindValue('p2', player2.getId())
+        query.prepare("SELECT idUser, idMap FROM ladder_map_selection WHERE idUser IN (:p1, :p2)")
+        query.addBindValue('p1', ids[0])
+        query.addBindValue('p2', ids[1])
         
-        maps = []
-        maps.append([])
+        maps = {0:[], 1:[]}
         if query.size() > 0:
             while query.next():
-                maps[query.value(0)].append(query.value[1])
+                id = 0 if ids[0] == query.value(0) else 1
+                maps[id].append(query.value[1])
         
         mapPool = list(set(maps[0]).intersection(set(maps[1])))
 
