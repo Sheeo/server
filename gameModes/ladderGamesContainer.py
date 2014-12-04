@@ -107,17 +107,15 @@ class ladder1v1GamesContainerClass(gamesContainerClass):
 
     def fillMapsQuery(self, maps, query):
         n = self.MAP_COUNT-len(maps)
-        if n <= 0:
-            return
+        if n > 0 :
+            query = QSqlQuery(self.db)    
+            query.prepare(query % n)
+            query.exec_()
 
-        query = QSqlQuery(self.db)    
-        query.prepare(query % n)
-        query.exec_()
-
-        if query.size() > 0:
-            while query.next():
-                maps.append(query.value(0))
-
+            if query.size() > 0:
+                while query.next():
+                    maps.append(query.value(0))
+    
         return list(set(maps))
     end
 
@@ -180,9 +178,9 @@ class ladder1v1GamesContainerClass(gamesContainerClass):
         mapPool = list(set(maps[0]).intersection(set(maps[1])))
 
         # random players maps, then popular and finally random, will stop at 15 in pool
-        self.fillPlayerMaps(mapPool, maps[random.randint(0,1)])
-        self.fillPopularMaps(mapPool)
-        self.fillRandomMaps(mapPool)
+        mapPool = self.fillPlayerMaps(mapPool, maps[random.randint(0,1)])
+        mapPool = self.fillPopularMaps(mapPool)
+        mapPool = self.fillRandomMaps(mapPool)
         
         mapChosen = random.choice(mapPool)
 
