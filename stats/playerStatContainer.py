@@ -16,42 +16,43 @@
 # GNU General Public License for more details.
 #-------------------------------------------------------------------------------
 
-from .xmlParser import *
+#from .xmlParser import *
 import bisect
 
 class playerStatContainer(object):
-    def __init__(self) :
-        self.__playerStats = []
-        self.__playerId = {}
-    
-    def __iter__(self) :
-        for pair in iter(self.__playerStats) :
-            yield pair[1]
-    
-    def __len__(self) :
-        return len(self.__playerStats)
-    
-    def clear(self):
-        self.__playerStats = []
-        
-    def add(self, playerStat):
-        if id(playerStat) in self.__playerId :
-            return False
-        key = self.key(playerStat.playerId)
-        bisect.insort_left(self.__playerStats, [key, playerStat])
-        self.__playerId[id(playerStat)] = playerStat
-        return True
-    
-    def key(self, id):
-        return id
-    
-    def importSax(self, stats):
-        handler = SaxStatsHandler(self)
-        parser = QXmlSimpleReader()
-        parser.setContentHandler(handler)
-        parser.setErrorHandler(handler)
-        datas = QXmlInputSource()
-        datas.setData(stats)
-        return parser.parse(datas)
+    pass
+   # def __init__(self) :
+   #     self.__playerStats = []
+   #     self.__playerId = {}
+   #
+   # def __iter__(self) :
+   #     for pair in iter(self.__playerStats) :
+   #         yield pair[1]
+   #
+   # def __len__(self) :
+   #     return len(self.__playerStats)
+   #
+   # def clear(self):
+   #     self.__playerStats = []
+   #
+   # def add(self, playerStat):
+   #     if id(playerStat) in self.__playerId :
+   #         return False
+   #     key = self.key(playerStat.playerId)
+   #     bisect.insort_left(self.__playerStats, [key, playerStat])
+   #     self.__playerId[id(playerStat)] = playerStat
+   #     return True
+   #
+   # def key(self, id):
+   #     return id
+   #
+   # def importSax(self, stats):
+   #     handler = SaxStatsHandler(self)
+   #     parser = QXmlSimpleReader()
+   #     parser.setContentHandler(handler)
+   #     parser.setErrorHandler(handler)
+   #     datas = QXmlInputSource()
+   #     datas.setData(stats)
+   #     return parser.parse(datas)
         
     

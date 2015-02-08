@@ -1,4 +1,4 @@
-#-------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
 # Copyright (c) 2014 Gael Honorez.
 # All rights reserved. This program and the accompanying materials
 # are made available under the terms of the GNU Public License v3.0
@@ -15,24 +15,85 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #-------------------------------------------------------------------------------
+import asyncio
+from asyncio.base_events import BaseEventLoop
 
-
-from PySide.QtNetwork import QTcpServer, QTcpSocket
 import logging
-from gameconnection import GameConnection
+from PySide.QtCore import QObject, Signal, QByteArray, Slot
+from PySide.QtNetwork import QTcpServer, QTcpSocket, QUdpSocket, QHostAddress
 
+from gameconnection import GameConnection
+import config
+from src.with_logger import with_logger
+
+@with_logger
+class NatPacketServer(QObject):
+    datagram_received = Signal(str, str, int)
+    def __init__(self, loop: BaseEventLoop, port, parent=None):
+        QObject.__init__(self, None)
+        socket = QUdpSocket(self)
+        self.loop = loop
+        self.port = port
+        self._logger.debug("{id} Listening on {port}".format(id=id(self), port=port))
+        socket.readyRead.connect(self._on_ready_read)
+        socket.error.connect(self._on_error)
+        socket.bind(port)
+        self._socket = socket
+        self._subscribers = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._socket.abort()
+
+    def _on_error(self):
+        self._logger.critical("Socket error {}".format(self._socket.errorString()))
+
+    def _on_ready_data(self):
+        self._logger.debug("On_ready_data called {}".format(id(self)))
+        while self._socket.hasPendingDatagrams():
+            self._logger.debug("HasPendingDatagrams: {}".format(self._socket.hasPendingDatagrams()))
+            data, host, port = self._socket.readDatagram(self._socket.pendingDatagramSize())
+            if data[0] == b'\x08':  # GPG NAT packets start with this byte
+                self._logger.debug("Emitting datagram_received {}".format(data))
+                # Doing anything interesting with data
+                # will apparently cause a full deep copy
+                # of all objects the signal
+                # gets propagated to.
+                # We don't want that.
+                self.datagram_received.emit("{}".format(data), host.toString(), port)
+
+
+    def _on_ready_read(self):
+        while self._socket.hasPendingDatagrams():
+            data, host, port = self._socket.readDatagram(self._socket.pendingDatagramSize())
+            self._logger.debug('Received {data} from {host}:{port}'.format(data=data, host=host, port=port))
+            self._logger.debug("First bit: {}".format(data[0]))
+            if data[0] == b'\x08':  # GPG NAT packets start with this byte
+                self._logger.debug("Emitting datagram_received")
+                # Doing anything interesting with data
+                # will apparently cause a full deep copy
+                # of all objects the signal
+                # gets propagated to.
+                # We don't want that.
+                self.datagram_received.emit("{}".format(data), host.toString(), port)
+
+@with_logger
 class FAServer(QTcpServer):
     def __init__(self, loop, listUsers, Games, db, dirtyGameList, parent=None):
-        super(FAServer, self).__init__(parent)
+        QTcpServer.__init__(self, parent)
         self.loop = loop
-        self.parent = parent
-        self.logger = logging.getLogger(__name__)
         self.sockets = {}
-        self.logger.debug("Starting FAServer")
+        self._logger.debug("Starting FAServer")
+        self.nat_packet_server = NatPacketServer(loop, config.LOBBY_UDP_PORT, self)
+        self.nat_packet_server.datagram_received.connect(self._on_nat_packet)
+        self.newConnection.connect(self._on_new_connection)
         self.dirtyGameList = dirtyGameList
         self.listUsers = listUsers
         self.games = Games
         self.db = db
+        self.done = asyncio.Future()
         self.recorders = []
 
     def __enter__(self):
@@ -52,23 +113,35 @@ class FAServer(QTcpServer):
         """
         for socket_id, socket in self.sockets.items():
             self.clean_socket(socket)
+        self.done.set_result(True)
         self.close()
 
     def clean_socket(self, socket: QTcpSocket):
         if socket.isOpen():
             socket.abort()
 
-    def incomingConnection(self, socket_id):
-        self.logger.debug("Incoming Game Connection")
+    def run(self, address):
+        self._logger.debug("Server listening on {}:{}".format(address, 8000))
+        self.listen(address, 8000)
 
-        socket = QTcpSocket()
-        if socket.setSocketDescriptor(socket_id):
-            self.sockets[socket_id] = socket
+    @Slot(str, str, int)
+    def _on_nat_packet(self, data, host, port):
+        self._logger.debug("NAT PACKET: {} {} {}".format(data, host, port))
+        for connection in self.recorders:
+            self._logger.debug("Propagating to {}".format(id(connection)))
+            connection.handle_ProcessServerNatPacket(data, host, port)
+
+    def _on_new_connection(self):
+        self._logger.debug("New connection")
+        if self.hasPendingConnections():
+            socket = self.nextPendingConnection()
+            self.sockets[socket.socketDescriptor()] = socket
             connection = GameConnection(self.loop, self.listUsers, self.games, self.db, self)
             connection.accept(socket)
             self.recorders.append(connection)
 
     def removeRecorder(self, recorder):
+        self._logger.critical("CLEANUP RECORDERS")
         if recorder in self.recorders:
             self.recorders.remove(recorder)
             recorder.deleteLater()

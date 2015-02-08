@@ -2,10 +2,8 @@ from PySide.QtCore import Signal, QObject
 from PySide.QtNetwork import QTcpSocket, QUdpSocket, QHostAddress
 from JsonTransport import QDataStreamJsonTransport
 
-import asyncio
 import mock
 import logging
-import time
 
 
 class TestGPGClient(QObject):
@@ -62,7 +60,7 @@ class TestGPGClient(QObject):
             data, host, port = self.udp_socket.readDatagram(self.udp_socket.pendingDatagramSize())
             self.logger.debug("UDP(%s:%s)<< %s" % (host.toString(), port, data))
             self.udp_messages(str(data))
-            self.receivedUdp.emit(data)
+            self.receivedUdp.emit(str(data))
 
     def _on_connected(self):
         self.logger.debug("Connected")
@@ -78,8 +76,8 @@ class TestGPGClient(QObject):
     def send_pong(self):
         self.transport.send_message({'action': 'pong', 'chuncks': []})
 
-    def send_game_state(self, arguments):
+    def send_GameState(self, arguments):
         self.transport.send_message({'action': 'GameState', 'chuncks': arguments})
 
-    def send_process_nat_packet(self, arguments):
+    def send_ProcessNatPacket(self, arguments):
         self.transport.send_message({'action': 'ProcessNatPacket', 'chuncks': arguments})
